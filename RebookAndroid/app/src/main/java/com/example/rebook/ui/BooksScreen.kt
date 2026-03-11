@@ -1,6 +1,5 @@
 package com.example.rebook.ui
 
-import androidx.annotation.experimental.Experimental
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,6 +35,13 @@ private val AccentPurple    = Color(0xFF7C3AED)
 private val AccentPink      = Color(0xFFEC4899)
 private val TextPrimary     = Color(0xFFF1F5F9)
 private val TextSecondary   = Color(0xFF94A3B8)
+private val NavBarBg        = Color(0xFF13112E)
+
+// ─── Tab Definition ───────────────────────────────────────────────────────────
+enum class BookTab(val label: String) {
+    ALL("All"),
+    FAVORITES("Favorites")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +49,12 @@ fun BooksScreen(
     viewModel: BooksViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var selectedTab by remember { mutableStateOf(BookTab.ALL) }
+
+    val displayedBooks = when (selectedTab) {
+        BookTab.ALL       -> state.books
+        BookTab.FAVORITES -> state.books.filter { it.key in state.favoriteKeys }
+    }
 
     Box(
         modifier = Modifier
@@ -52,56 +65,119 @@ fun BooksScreen(
                 )
             )
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Color.Transparent,
+
             // ── Top Bar ────────────────────────────────────────────────────
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "📚 Rebook",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = TextPrimary
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "📚 Rebook",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = TextPrimary
+                        )
+                    },
+                    actions = {
+                        IconButton(onClick = { viewModel.loadBooks() }) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                tint = TextPrimary
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
                     )
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.loadBooks() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = TextPrimary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent
                 )
-            )
+            },
+
+            // ── Bottom Tab Bar ─────────────────────────────────────────────
+            bottomBar = {
+                NavigationBar(
+                    containerColor = NavBarBg,
+                    tonalElevation = 0.dp
+                ) {
+                    BookTab.values().forEach { tab ->
+                        val isSelected = tab == selectedTab
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { selectedTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = when (tab) {
+                                        BookTab.ALL ->
+                                            Icons.Default.Menu
+                                        BookTab.FAVORITES ->
+                                            if (isSelected) Icons.Default.Favorite
+                                            else Icons.Default.FavoriteBorder
+                                    },
+                                    contentDescription = tab.label
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.label,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold
+                                                 else FontWeight.Normal
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor      = AccentPurple.copy(alpha = 0.25f),
+                                selectedIconColor   = AccentPink,
+                                unselectedIconColor = TextSecondary,
+                                selectedTextColor   = AccentPurple,
+                                unselectedTextColor = TextSecondary
+                            )
+                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
 
             // ── Content ────────────────────────────────────────────────────
-            when {
-                state.isLoading -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = AccentPurple)
+            Box(modifier = Modifier.padding(innerPadding)) {
+                when {
+                    state.isLoading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = AccentPurple)
+                        }
                     }
-                }
 
-                state.error != null -> {
-                    ErrorView(message = state.error!!, onRetry = { viewModel.loadBooks() })
-                }
-
-                state.books.isEmpty() -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No books found.", color = TextSecondary)
+                    state.error != null -> {
+                        ErrorView(
+                            message = state.error!!,
+                            onRetry = { viewModel.loadBooks() }
+                        )
                     }
-                }
 
-                else -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(state.books, key = { it.key }) { book ->
-                            BookCard(
-                                book = book,
-                                isFavorite = book.key in state.favoriteKeys,
-                                onToggleFavorite = { viewModel.toggleFavorite(book) }
+                    displayedBooks.isEmpty() -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (selectedTab == BookTab.FAVORITES)
+                                    "No favorites yet.\nTap ♥ on a book to add one!"
+                                else
+                                    "No books found.",
+                                color = TextSecondary
                             )
+                        }
+                    }
+
+                    else -> {
+                        LazyColumn(
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(displayedBooks, key = { it.key }) { book ->
+                                BookCard(
+                                    book = book,
+                                    isFavorite = book.key in state.favoriteKeys,
+                                    onToggleFavorite = { viewModel.toggleFavorite(book) }
+                                )
+                            }
                         }
                     }
                 }
@@ -110,6 +186,7 @@ fun BooksScreen(
     }
 }
 
+// ─── Book Card ────────────────────────────────────────────────────────────────
 @Composable
 fun BookCard(
     book: Book,
@@ -128,7 +205,7 @@ fun BookCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // ── Cover Image ────────────────────────────────────────────────
+            // Cover Image
             book.coverUrl?.let { url ->
                 AsyncImage(
                     model = url,
@@ -153,7 +230,7 @@ fun BookCard(
 
             Spacer(modifier = Modifier.width(14.dp))
 
-            // ── Details ────────────────────────────────────────────────────
+            // Details
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = book.title,
@@ -183,11 +260,13 @@ fun BookCard(
                 }
             }
 
-            // ── Favorite Button ────────────────────────────────────────────
+            // Favorite toggle
             IconButton(onClick = onToggleFavorite) {
                 Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                    imageVector = if (isFavorite) Icons.Default.Favorite
+                                  else Icons.Default.FavoriteBorder,
+                    contentDescription = if (isFavorite) "Remove from favorites"
+                                         else "Add to favorites",
                     tint = if (isFavorite) AccentPink else TextSecondary
                 )
             }
@@ -195,11 +274,16 @@ fun BookCard(
     }
 }
 
+// ─── Error View ───────────────────────────────────────────────────────────────
 @Composable
 fun ErrorView(message: String, onRetry: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("⚠️ Something went wrong", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(
+                "⚠️ Something went wrong",
+                color = TextPrimary,
+                fontWeight = FontWeight.SemiBold
+            )
             Spacer(Modifier.height(8.dp))
             Text(message, color = TextSecondary, fontSize = 13.sp)
             Spacer(Modifier.height(16.dp))
